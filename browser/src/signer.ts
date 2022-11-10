@@ -9,8 +9,6 @@ import {
   blake2b256,
 } from "@multiformats/blake2/blake2b";
 import { Buffer } from "buffer";
-import { BN } from "bn.js";
-import { encode } from "@ipld/dag-cbor";
 
 /* Why implement all that stuff from scratch?
  * Those big filecoin JS libraries come with a lot of heavy dependencies...
@@ -108,46 +106,4 @@ export function addressToBytes(addr: string) {
   bytes.append(new Uint8Array([AddressType.SECP256K1]));
   bytes.append(payload);
   return bytes.slice();
-}
-
-// Encode Filecoin amount strings for inclusing in a message.
-export function serializeBigNum(num: string): Uint8Array {
-  const bn = new BN(num, 10);
-  // @ts-ignore
-  const bnBuf = bn.toArrayLike(Uint8Array, "be", bn.byteLength);
-  const bytes = new Uint8ArrayList();
-  bytes.append(new Uint8Array([0]));
-  bytes.append(bnBuf);
-  return bytes.slice();
-}
-
-// A Filecoin message for sending to miners and include in blocks.
-// It is encoded as a CBOR array.
-type Message = {
-  version: number;
-  to: string;
-  from: string;
-  nonce: number;
-  value: string;
-  gasLimit: number;
-  gasFeeCap: string;
-  gasPremium: string;
-  method: number;
-  params: string;
-};
-
-// encode a Filecoin message into a CBOR array for signature.
-export function encodeMessage(msg: Message) {
-  return encode([
-    0,
-    addressToBytes(msg.to),
-    addressToBytes(msg.from),
-    msg.nonce,
-    serializeBigNum(msg.value),
-    msg.gasLimit,
-    serializeBigNum(msg.gasFeeCap),
-    serializeBigNum(msg.gasPremium),
-    msg.method,
-    new Uint8Array(),
-  ]);
 }

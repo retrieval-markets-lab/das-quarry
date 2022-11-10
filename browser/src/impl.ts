@@ -2,9 +2,11 @@ import { multiaddr, Multiaddr } from "@multiformats/multiaddr";
 import { peerIdFromString } from "@libp2p/peer-id";
 import { Uint8ArrayList } from "uint8arraylist";
 import { decode, encode } from "@ipld/dag-cbor";
+import { toPublic, Key } from "./signer.js";
 import type { PeerId } from "@libp2p/interface-peer-id";
 import type { Network } from "./network.js";
 import type { CID } from "multiformats";
+import { Message, toStorageBlock } from "./messages.js";
 
 export function getPeerInfo(addrStr: string): {
   id: PeerId;
@@ -24,15 +26,18 @@ export function getPeerInfo(addrStr: string): {
 
 type HelloMsg = [CID[], number, number, CID];
 
-type ChainInfo = {
+export type ChainInfo = {
   latestTipset: CID[];
   height: number;
 };
 
-type QuarryClient = {
+export type QuarryClient = {
   onPeerConnected: (cb: (addr: Multiaddr) => void) => any;
   onChainInfo: (cb: (info: ChainInfo) => void) => any;
   subscribeToBlocks: (cb: (blk: any) => void) => any;
+  importKey: (privKey: string) => Key;
+  connect: (maddr: string) => Promise<any>;
+  publishMessage: (msg: Message) => Promise<CID>;
 };
 
 type ClientOptions = {
@@ -43,6 +48,7 @@ export function createQuarry(
   network: Network,
   options: ClientOptions
 ): QuarryClient {
+  const keystore: Map<string, Key> = new Map();
   return {
     onPeerConnected: function (cb) {
       network.connectionManager.addEventListener("peer:connect", (conn) =>
@@ -78,6 +84,20 @@ export function createQuarry(
             break;
         }
       });
+    },
+    importKey: function (privKey: string): Key {
+      const key = toPublic(privKey);
+      keystore.set(key.addr, key);
+      return key;
+    },
+    connect: function (maddr: string) {
+      return network.dial(multiaddr(maddr));
+    },
+    publishMessage: async function (msg: Message) {
+      const { value: addr } = keystore.keys().next();
+      msg.from = addr;
+      const { cid } = toStorageBlock(msg);
+      return cid;
     },
   };
 }
