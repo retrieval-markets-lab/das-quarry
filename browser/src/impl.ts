@@ -37,7 +37,7 @@ export type QuarryClient = {
   subscribeToBlocks: (cb: (blk: any) => void) => any;
   importKey: (privKey: string) => Key;
   connect: (maddr: string) => Promise<any>;
-  publishMessage: (msg: Message) => Promise<CID>;
+  pushMessage: (msg: Message) => Promise<CID>;
 };
 
 type ClientOptions = {
@@ -93,7 +93,7 @@ export function createQuarry(
     connect: function (maddr: string) {
       return network.dial(multiaddr(maddr));
     },
-    publishMessage: async function (msg: Message) {
+    pushMessage: async function (msg: Message) {
       const { value: addr } = keystore.keys().next();
       msg.from = addr;
       const { cid } = toStorageBlock(msg);

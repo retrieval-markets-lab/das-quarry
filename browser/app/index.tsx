@@ -48,7 +48,7 @@ function App() {
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
   async function sendMessage() {
-    const msgCid = await quarry?.publishMessage(messages.send({ amount, to }));
+    const msgCid = await quarry?.pushMessage(messages.send({ amount, to }));
   }
 
   return (
