@@ -4,7 +4,7 @@
 
 ## Roadmap
 
-Quarry is still in development. Stay tune for our next releases.
+Quarry is still in development. Stay tune for our first release.
 
 ## Usage
 
@@ -23,13 +23,21 @@ const libp2p = await createLibp2p({
 await libp2p.start();
  
 const client = await createQuarry(libp2p, {
-  network: networks.FilecoinDevNet,
+  networkName: networks.FilecoinDevNet,
 });
 
 const amount = await client.getBalance("t1izccwid4h3svp5sl2xow6jhuc72qmznv6gkbecq");
 
-await client.sendMessage(messages.send({ amount, to: "t3v4c7vddk4dkqz6atlwi5zgsvaunm3ojqozfukd6i3j5wt6rdsz7tuysdxg4vdyez37qk5rj3p5zetxzaoiaa" }));
+await client.pushMessage(messages.send({ amount, to: "t3v4c7vddk4dkqz6atlwi5zgsvaunm3ojqozfukd6i3j5wt6rdsz7tuysdxg4vdyez37qk5rj3p5zetxzaoiaa" }));
 ```
+
+Running the staging app:
+
+```sh
+npm install && npm run build
+cd app && npm run start
+```
+Open the browser at `http://localhost:8000`.
 
 - Nodes
 
