@@ -6,7 +6,7 @@ import { toPublic, Key } from "./signer.js";
 import type { PeerId } from "@libp2p/interface-peer-id";
 import type { Network } from "./network.js";
 import type { CID } from "multiformats";
-import { Message, toStorageBlock } from "./messages.js";
+import { Message, serializeSignedMessage, signMessage } from "./messages.js";
 
 export function getPeerInfo(addrStr: string): {
   id: PeerId;
@@ -94,10 +94,13 @@ export function createQuarry(
       return network.dial(multiaddr(maddr));
     },
     pushMessage: async function (msg: Message) {
-      const { value: addr } = keystore.keys().next();
-      msg.from = addr;
-      const { cid } = toStorageBlock(msg);
-      return cid;
+      const { value: key } = keystore.values().next();
+      msg.from = key.addr;
+      const smsg = signMessage(msg, key.priv);
+      const enc = serializeSignedMessage(smsg);
+
+      await network.pubsub.publish("/fil/msgs/" + options.networkName, enc);
+      return smsg.cid;
     },
   };
 }

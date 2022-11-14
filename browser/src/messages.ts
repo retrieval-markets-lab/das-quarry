@@ -1,5 +1,5 @@
 import { encode } from "@ipld/dag-cbor";
-import { addressToBytes } from "./signer.js";
+import { addressToBytes, sign } from "./signer.js";
 import { BN } from "bn.js";
 import { Uint8ArrayList } from "uint8arraylist";
 import { CID } from "multiformats";
@@ -71,4 +71,45 @@ export function toStorageBlock(msg: Message): { cid: CID; data: Uint8Array } {
     cid,
     data,
   };
+}
+
+export type SignedMessage = {
+  msg: Message;
+  signature: Uint8Array;
+  bytes: Uint8Array;
+  cid: CID;
+};
+
+export function signMessage(msg: Message, privKey: Uint8Array): SignedMessage {
+  const { cid, data } = toStorageBlock(msg);
+  return {
+    signature: sign(privKey, cid.bytes),
+    msg,
+    bytes: data,
+    cid,
+  };
+}
+
+export function serializeSignedMessage(smsg: SignedMessage): Uint8Array {
+  const sigUl = new Uint8ArrayList();
+  // secp256k1 sign type is a 0 byte
+  sigUl.append(new Uint8Array([1]));
+  sigUl.append(smsg.signature);
+
+  const msg = smsg.msg;
+  return encode([
+    [
+      0,
+      addressToBytes(msg.to),
+      addressToBytes(msg.from),
+      msg.nonce,
+      serializeBigNum(msg.value),
+      msg.gasLimit,
+      serializeBigNum(msg.gasFeeCap),
+      serializeBigNum(msg.gasPremium),
+      msg.method,
+      new Uint8Array(),
+    ],
+    sigUl.slice(),
+  ]);
 }
