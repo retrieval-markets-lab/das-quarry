@@ -55,7 +55,7 @@ export function encodeMessage(msg: Message) {
 export function serializeBigNum(num: string): Uint8Array {
   const bn = new BN(num, 10);
   // @ts-ignore
-  const bnBuf = bn.toArrayLike(Uint8Array, "be", bn.byteLength);
+  const bnBuf = bn.toArrayLike(Uint8Array, "be", bn.byteLength());
   const bytes = new Uint8ArrayList();
   bytes.append(new Uint8Array([0]));
   bytes.append(bnBuf);

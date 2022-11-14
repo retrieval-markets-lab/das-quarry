@@ -97,13 +97,17 @@ function newAddress(
 
 // Encode an address string to bytes for inclusion in a message.
 export function addressToBytes(addr: string) {
-  const addrBytes = base32.decode(addr.slice(2));
+  const addrBytes = base32.decode("b" + addr.slice(2));
   const payload = addrBytes.slice(0, -4);
-  if (!equals(calcChecksum(payload), addrBytes.slice(-4))) {
+
+  const byteList = new Uint8ArrayList();
+  byteList.append(new Uint8Array([AddressType.SECP256K1]));
+  byteList.append(payload);
+
+  const bytes = byteList.slice();
+
+  if (!equals(calcChecksum(bytes), addrBytes.slice(-4))) {
     throw new Error("address checksum doesn't match");
   }
-  const bytes = new Uint8ArrayList();
-  bytes.append(new Uint8Array([AddressType.SECP256K1]));
-  bytes.append(payload);
-  return bytes.slice();
+  return bytes;
 }
