@@ -1,0 +1,22 @@
+[package]
+name = "quarry-circuits"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+halo2_proofs = "0.2.0"
+halo2_gadgets = { version = "0.2.0", features = ["unstable"] } 
+ff = "0.12"
+rand = "0.8"
+pasta_curves = "0.4.0"
+colog = { version = "1.1.0", optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.3", features = ["html_reports"] } 
+
+[[bench]]
+name = "poseidon"
+harness = false
+
