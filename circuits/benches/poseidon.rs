@@ -7,35 +7,33 @@ use halo2_proofs::{
     },
     poly::{
         commitment::ParamsProver,
-        ipa::{
-            commitment::{IPACommitmentScheme, ParamsIPA},
-            multiopen::ProverIPA,
+        kzg::{
+            commitment::{KZGCommitmentScheme, ParamsKZG},
+            multiopen::{ProverGWC, VerifierGWC},
             strategy::SingleStrategy,
         },
-        VerificationStrategy,
     },
     transcript::{
         Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
     },
 };
-use halo2curves::pasta::{pallas, vesta, EqAffine, Fp};
+use halo2curves::bn256::{Bn256, Fr, G1Affine};
 
+use criterion::{criterion_group, criterion_main, Criterion};
 use halo2_gadgets::poseidon::{
     primitives::{self as poseidon, ConstantLength, Spec},
     Hash, Pow5Chip, Pow5Config,
 };
+use rand::rngs::OsRng;
 use std::convert::TryInto;
 use std::marker::PhantomData;
-
-use criterion::{criterion_group, criterion_main, Criterion};
-use rand::rngs::OsRng;
 
 #[derive(Clone, Copy)]
 struct HashCircuit<S, const WIDTH: usize, const RATE: usize>
 where
-    S: Spec<Fp, WIDTH, RATE> + Clone + Copy,
+    S: Spec<Fr, WIDTH, RATE> + Clone + Copy,
 {
-    message: Value<[Fp; RATE]>,
+    message: Value<[Fr; RATE]>,
     _spec: PhantomData<S>,
 }
 
@@ -43,12 +41,12 @@ where
 struct MyConfig<const WIDTH: usize, const RATE: usize> {
     input: [Column<Advice>; RATE],
     expected: Column<Instance>,
-    poseidon_config: Pow5Config<Fp, WIDTH, RATE>,
+    poseidon_config: Pow5Config<Fr, WIDTH, RATE>,
 }
 
-impl<S, const WIDTH: usize, const RATE: usize> Circuit<Fp> for HashCircuit<S, WIDTH, RATE>
+impl<S, const WIDTH: usize, const RATE: usize> Circuit<Fr> for HashCircuit<S, WIDTH, RATE>
 where
-    S: Spec<Fp, WIDTH, RATE> + Copy + Clone,
+    S: Spec<Fr, WIDTH, RATE> + Copy + Clone,
 {
     type Config = MyConfig<WIDTH, RATE>;
     type FloorPlanner = SimpleFloorPlanner;
@@ -60,7 +58,7 @@ where
         }
     }
 
-    fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+    fn configure(meta: &mut ConstraintSystem<Fr>) -> Self::Config {
         let state = (0..WIDTH).map(|_| meta.advice_column()).collect::<Vec<_>>();
         let expected = meta.instance_column();
         meta.enable_equality(expected);
@@ -87,7 +85,7 @@ where
     fn synthesize(
         &self,
         config: Self::Config,
-        mut layouter: impl Layouter<Fp>,
+        mut layouter: impl Layouter<Fr>,
     ) -> Result<(), Error> {
         let chip = Pow5Chip::construct(config.poseidon_config.clone());
 
@@ -122,7 +120,7 @@ where
 #[derive(Debug, Clone, Copy)]
 struct MySpec<const WIDTH: usize, const RATE: usize>;
 
-impl<const WIDTH: usize, const RATE: usize> Spec<Fp, WIDTH, RATE> for MySpec<WIDTH, RATE> {
+impl<const WIDTH: usize, const RATE: usize> Spec<Fr, WIDTH, RATE> for MySpec<WIDTH, RATE> {
     fn full_rounds() -> usize {
         8
     }
@@ -131,7 +129,7 @@ impl<const WIDTH: usize, const RATE: usize> Spec<Fp, WIDTH, RATE> for MySpec<WID
         56
     }
 
-    fn sbox(val: Fp) -> Fp {
+    fn sbox(val: Fr) -> Fr {
         val.pow_vartime(&[5])
     }
 
@@ -144,10 +142,10 @@ const K: u32 = 7;
 
 fn bench_poseidon<S, const WIDTH: usize, const RATE: usize>(name: &str, c: &mut Criterion)
 where
-    S: Spec<Fp, WIDTH, RATE> + Copy + Clone,
+    S: Spec<Fr, WIDTH, RATE> + Copy + Clone,
 {
     // Initialize the polynomial commitment parameters
-    let params: ParamsIPA<vesta::Affine> = ParamsIPA::new(K);
+    let params: ParamsKZG<Bn256> = ParamsKZG::new(K);
 
     let empty_circuit = HashCircuit::<S, WIDTH, RATE> {
         message: Value::unknown(),
@@ -163,7 +161,7 @@ where
 
     let mut rng = OsRng;
     let message = (0..RATE)
-        .map(|_| pallas::Base::random(rng))
+        .map(|_| Fr::random(rng))
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
@@ -175,11 +173,11 @@ where
     };
 
     // Create a proof
-    let mut transcript = Blake2bWrite::<_, EqAffine, Challenge255<_>>::init(vec![]);
+    let mut transcript = Blake2bWrite::<_, G1Affine, Challenge255<_>>::init(vec![]);
 
     c.bench_function(&prover_name, |b| {
         b.iter(|| {
-            create_proof::<IPACommitmentScheme<_>, ProverIPA<_>, _, _, _, _>(
+            create_proof::<KZGCommitmentScheme<_>, ProverGWC<_>, _, _, _, _>(
                 &params,
                 &pk,
                 &[circuit],
@@ -197,7 +195,7 @@ where
         b.iter(|| {
             let strategy = SingleStrategy::new(&params);
             let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
-            assert!(verify_proof(
+            assert!(verify_proof::<_, VerifierGWC<_>, _, _, _>(
                 &params,
                 pk.get_vk(),
                 strategy,

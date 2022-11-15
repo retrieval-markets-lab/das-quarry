@@ -252,6 +252,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "ecc"
+version = "0.1.0"
+source = "git+https://github.com/privacy-scaling-explorations/halo2wrong?tag=v2022_10_22#63bde545d934e69c806ef9bc8b18f03f6ec0fe8e"
+dependencies = [
+ "group",
+ "integer",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+ "rand",
+ "subtle",
+]
+
+[[package]]
+name = "ecdsa"
+version = "0.1.0"
+source = "git+https://github.com/privacy-scaling-explorations/halo2wrong?tag=v2022_10_22#63bde545d934e69c806ef9bc8b18f03f6ec0fe8e"
+dependencies = [
+ "ecc",
+ "group",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+ "rand",
+ "subtle",
+]
+
+[[package]]
 name = "either"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -364,6 +392,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "halo2wrong"
+version = "0.1.0"
+source = "git+https://github.com/privacy-scaling-explorations/halo2wrong?tag=v2022_10_22#63bde545d934e69c806ef9bc8b18f03f6ec0fe8e"
+dependencies = [
+ "group",
+ "halo2_proofs",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "hermit-abi"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -383,6 +423,20 @@ name = "humantime"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
+
+[[package]]
+name = "integer"
+version = "0.1.0"
+source = "git+https://github.com/privacy-scaling-explorations/halo2wrong?tag=v2022_10_22#63bde545d934e69c806ef9bc8b18f03f6ec0fe8e"
+dependencies = [
+ "group",
+ "maingate",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+ "rand",
+ "subtle",
+]
 
 [[package]]
 name = "itertools"
@@ -436,6 +490,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "maingate"
+version = "0.1.0"
+source = "git+https://github.com/privacy-scaling-explorations/halo2wrong?tag=v2022_10_22#63bde545d934e69c806ef9bc8b18f03f6ec0fe8e"
+dependencies = [
+ "group",
+ "halo2wrong",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+ "rand",
+ "subtle",
+]
+
+[[package]]
 name = "memchr"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -459,6 +527,7 @@ dependencies = [
  "autocfg",
  "num-integer",
  "num-traits",
+ "rand",
 ]
 
 [[package]]
@@ -572,10 +641,15 @@ version = "0.1.0"
 dependencies = [
  "colog",
  "criterion",
+ "ecc",
+ "ecdsa",
  "ff",
  "halo2_gadgets",
  "halo2_proofs",
  "halo2curves",
+ "halo2wrong",
+ "integer",
+ "maingate",
  "pasta_curves",
  "rand",
 ]
