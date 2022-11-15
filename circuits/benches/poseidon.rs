@@ -1,15 +1,24 @@
 use ff::Field;
 use halo2_proofs::{
     circuit::{Layouter, SimpleFloorPlanner, Value},
-    pasta::Fp,
     plonk::{
         create_proof, keygen_pk, keygen_vk, verify_proof, Advice, Circuit, Column,
-        ConstraintSystem, Error, Instance, SingleVerifier,
+        ConstraintSystem, Error, Instance,
     },
-    poly::commitment::Params,
-    transcript::{Blake2bRead, Blake2bWrite, Challenge255},
+    poly::{
+        commitment::ParamsProver,
+        ipa::{
+            commitment::{IPACommitmentScheme, ParamsIPA},
+            multiopen::ProverIPA,
+            strategy::SingleStrategy,
+        },
+        VerificationStrategy,
+    },
+    transcript::{
+        Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
+    },
 };
-use pasta_curves::{pallas, vesta};
+use halo2curves::pasta::{pallas, vesta, EqAffine, Fp};
 
 use halo2_gadgets::poseidon::{
     primitives::{self as poseidon, ConstantLength, Spec},
@@ -138,7 +147,7 @@ where
     S: Spec<Fp, WIDTH, RATE> + Copy + Clone,
 {
     // Initialize the polynomial commitment parameters
-    let params: Params<vesta::Affine> = Params::new(K);
+    let params: ParamsIPA<vesta::Affine> = ParamsIPA::new(K);
 
     let empty_circuit = HashCircuit::<S, WIDTH, RATE> {
         message: Value::unknown(),
@@ -166,11 +175,11 @@ where
     };
 
     // Create a proof
-    let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
+    let mut transcript = Blake2bWrite::<_, EqAffine, Challenge255<_>>::init(vec![]);
 
     c.bench_function(&prover_name, |b| {
         b.iter(|| {
-            create_proof(
+            create_proof::<IPACommitmentScheme<_>, ProverIPA<_>, _, _, _, _>(
                 &params,
                 &pk,
                 &[circuit],
@@ -186,7 +195,7 @@ where
 
     c.bench_function(&verifier_name, |b| {
         b.iter(|| {
-            let strategy = SingleVerifier::new(&params);
+            let strategy = SingleStrategy::new(&params);
             let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
             assert!(verify_proof(
                 &params,
