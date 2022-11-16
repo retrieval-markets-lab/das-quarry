@@ -7,6 +7,11 @@ import type { PeerId } from "@libp2p/interface-peer-id";
 import type { Network } from "./network.js";
 import type { CID } from "multiformats";
 import { Message, serializeSignedMessage, signMessage } from "./messages.js";
+import {
+  chainExchangeClient,
+  FullBlock,
+  decodeBlockHeader,
+} from "./chainExchange.js";
 
 export function getPeerInfo(addrStr: string): {
   id: PeerId;
@@ -34,10 +39,11 @@ export type ChainInfo = {
 export type QuarryClient = {
   onPeerConnected: (cb: (addr: Multiaddr) => void) => any;
   onChainInfo: (cb: (info: ChainInfo) => void) => any;
-  subscribeToBlocks: (cb: (blk: any) => void) => any;
+  subscribeToBlocks: (cb: (blk: FullBlock) => void) => any;
   importKey: (privKey: string) => Key;
   connect: (maddr: string) => Promise<any>;
   pushMessage: (msg: Message) => Promise<CID>;
+  waitMessage: (msg: CID) => Promise<any>;
 };
 
 type ClientOptions = {
@@ -49,6 +55,7 @@ export function createQuarry(
   options: ClientOptions
 ): QuarryClient {
   const keystore: Map<string, Key> = new Map();
+  const chainExchange = chainExchangeClient(network);
   return {
     onPeerConnected: function (cb) {
       network.connectionManager.addEventListener("peer:connect", (conn) =>
@@ -76,11 +83,15 @@ export function createQuarry(
     subscribeToBlocks: function (cb) {
       const topic = "/fil/blocks/" + options.networkName;
       network.pubsub.subscribe(topic);
-      network.pubsub.addEventListener("message", (evt) => {
+      network.pubsub.addEventListener("message", async (evt) => {
         switch (evt.detail.topic) {
           case topic:
-            const blk = decode(evt.detail.data);
-            cb(blk);
+            const header = decodeBlockHeader(evt.detail.data);
+            const messages = await chainExchange.getChainMessages(
+              header.parents,
+              1
+            );
+            cb({ header, ...messages });
             break;
         }
       });
@@ -101,6 +112,11 @@ export function createQuarry(
 
       await network.pubsub.publish("/fil/msgs/" + options.networkName, enc);
       return smsg.cid;
+    },
+    waitMessage: function (msg: CID) {
+      return new Promise((resolve, reject) => {
+        resolve("TODO");
+      });
     },
   };
 }

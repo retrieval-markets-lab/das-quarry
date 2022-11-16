@@ -35,6 +35,11 @@ function App() {
 
     const q = createQuarry(host, { networkName: netname });
 
+    q.onChainInfo(setInfo);
+    q.subscribeToBlocks((blk) => {
+      console.log(blk);
+    });
+
     await q.connect(maddr);
     setLoading(false);
   }
