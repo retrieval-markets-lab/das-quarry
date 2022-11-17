@@ -647,7 +647,6 @@ dependencies = [
  "halo2_gadgets",
  "halo2_proofs",
  "halo2curves",
- "halo2wrong",
  "integer",
  "maingate",
  "pasta_curves",

@@ -214,5 +214,9 @@ fn criterion_benchmark(c: &mut Criterion) {
     bench_poseidon::<MySpec<25, 24>, 25, 24>("WIDTH = 25, RATE = 24", c);
 }
 
-criterion_group!(benches, criterion_benchmark);
-criterion_main!(benches);
+criterion_group!(
+    name = poseidon;
+    config = Criterion::default().sample_size(100);
+    targets = criterion_benchmark
+);
+criterion_main!(poseidon);
