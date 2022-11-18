@@ -6,7 +6,6 @@ import * as filters from "@libp2p/websockets/filters";
 import { webSockets } from "@libp2p/websockets";
 import { yamux } from "@chainsafe/libp2p-yamux";
 import { noise } from "@chainsafe/libp2p-noise";
-import { gossipsub } from "@chainsafe/libp2p-gossipsub";
 import {
   createQuarry,
   ChainInfo,
@@ -16,43 +15,66 @@ import {
 } from "das-quarry";
 import Spinner from "./Spinner.js";
 
+const ADDR_KEY = "/maddr/default";
+const NETNAME_KEY = "/netname/default";
+const PRIV_KEY = "/pkeyimport/default";
+const TO_KEY = "/toaddr/default";
+const AMOUNT_KEY = "/amount/default";
+
 function App() {
   const [quarry, setQuarry] = useState<QuarryClient | null>(null);
   const [info, setInfo] = useState<ChainInfo | null>(null);
-  const [maddr, setMaddr] = useState("");
-  const [netname, setNetname] = useState("");
+  const [maddr, setMaddr] = useState(localStorage.getItem(ADDR_KEY) ?? "");
+  const [netname, setNetname] = useState(
+    localStorage.getItem(NETNAME_KEY) ?? ""
+  );
   const [loading, setLoading] = useState(false);
 
   async function connectPeer() {
     setLoading(true);
+
+    localStorage.setItem(NETNAME_KEY, netname);
+    localStorage.setItem(ADDR_KEY, maddr);
+
     const host = await createLibp2p({
       transports: [webSockets({ filter: filters.all })],
       connectionEncryption: [noise()],
       streamMuxers: [yamux()],
-      pubsub: gossipsub(),
     });
     await host.start();
 
-    const q = createQuarry(host, { networkName: netname });
+    console.log(host.peerId.toString());
 
-    q.onChainInfo(setInfo);
-    q.subscribeToBlocks((blk) => {
-      console.log(blk);
+    const q = await createQuarry(host, {
+      networkName: netname,
+      bootstrappers: [maddr],
+      handleHello: true,
     });
 
-    await q.connect(maddr);
-    setLoading(false);
+    q.subscribeToBlocks((blk) => {
+      setInfo({ latestTipset: [blk.cid], height: blk.header.height });
+      if (loading) {
+        setLoading(false);
+      }
+    });
+
+    setQuarry(q);
   }
 
-  const [rawprivkey, setRawprivkey] = useState("");
+  const [rawprivkey, setRawprivkey] = useState(
+    localStorage.getItem(PRIV_KEY) ?? ""
+  );
   const [key, setKey] = useState<Key | null>(null);
   function importKey() {
+    localStorage.setItem(PRIV_KEY, rawprivkey);
     setKey(quarry.importKey(rawprivkey));
   }
 
-  const [to, setTo] = useState("");
-  const [amount, setAmount] = useState("");
+  const [to, setTo] = useState(localStorage.getItem(TO_KEY) ?? "");
+  const [amount, setAmount] = useState(localStorage.getItem(AMOUNT_KEY) ?? "");
   async function sendMessage() {
+    localStorage.setItem(TO_KEY, to);
+    localStorage.setItem(AMOUNT_KEY, amount);
     const msgCid = await quarry?.pushMessage(messages.send({ amount, to }));
   }
 
@@ -143,7 +165,7 @@ function App() {
           {info?.latestTipset.reduce(
             (cid, acc) => cid.toString() + " " + acc,
             ""
-          ) ?? "Pending"}
+          ) ?? "Not connected to network"}
         </pre>
       )}
     </div>

@@ -1,7 +1,8 @@
-import type { CID } from "multiformats";
 import type { ConnectionManager } from "@libp2p/interface-connection-manager";
 import { encode, decode } from "@ipld/dag-cbor";
 import { Uint8ArrayList } from "uint8arraylist";
+import { CID } from "multiformats";
+import { blake2b256 } from "@multiformats/blake2/blake2b";
 
 export type BlockHeader = {
   miner: Uint8Array;
@@ -22,31 +23,51 @@ export type BlockHeader = {
   parentBaseFee: Uint8Array;
 };
 
+export type BlockMsg = {
+  header: BlockHeader;
+  blsMessages: CID[];
+  secpkMessages: CID[];
+  cid: CID;
+};
+
 export type FullBlock = {
   header: BlockHeader;
   blsMessages: any[];
   secpkMessages: SecpkMessages;
 };
 
-export function decodeBlockHeader(bytes: Uint8Array): BlockHeader {
-  const [header, ,] = decode<[any[], any, any]>(bytes);
+export function decodeBlockMsg(bytes: Uint8Array): BlockMsg {
+  const [header, blsMessages, secpkMessages] =
+    decode<[any[], CID[], CID[]]>(bytes);
+  // We have to re-encode the header unfortunately, can't find a way to
+  // progressively decode the message without building a custom tokeniser.
+  const headerBytes = encode(header);
+  const hash = blake2b256.digest(headerBytes);
+  // @ts-ignore-next-line: thinks it's a promise but nah.
+  const cid = CID.create(1, 0x71, hash);
+
   return {
-    miner: header[0],
-    ticket: header[1],
-    electionProof: header[2],
-    beaconEntries: header[3],
-    winPoStProof: header[4],
-    parents: header[5],
-    parentsWeight: header[6],
-    height: header[7],
-    parentStateRoot: header[8],
-    parentMessageReceipts: header[9],
-    messages: header[10],
-    blsAggregate: header[11],
-    timestamp: header[12],
-    blockSig: header[13],
-    forkSignaling: header[14],
-    parentBaseFee: header[15],
+    header: {
+      miner: header[0],
+      ticket: header[1],
+      electionProof: header[2],
+      beaconEntries: header[3],
+      winPoStProof: header[4],
+      parents: header[5],
+      parentsWeight: header[6],
+      height: header[7],
+      parentStateRoot: header[8],
+      parentMessageReceipts: header[9],
+      messages: header[10],
+      blsAggregate: header[11],
+      timestamp: header[12],
+      blockSig: header[13],
+      forkSignaling: header[14],
+      parentBaseFee: header[15],
+    },
+    blsMessages,
+    secpkMessages,
+    cid,
   };
 }
 

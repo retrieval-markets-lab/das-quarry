@@ -4,6 +4,7 @@ import { BN } from "bn.js";
 import { Uint8ArrayList } from "uint8arraylist";
 import { CID } from "multiformats";
 import { blake2b256 } from "@multiformats/blake2/blake2b";
+import type { BlockHeader } from "./chainExchange.js";
 
 // A Filecoin message for sending to miners and include in blocks.
 // It is encoded as a CBOR array.
@@ -28,8 +29,8 @@ export function send({ amount, to }: { amount: string; to: string }): Message {
     nonce: 1,
     value: amount,
     gasLimit: 0,
-    gasFeeCap: "3000",
-    gasPremium: "0",
+    gasFeeCap: "",
+    gasPremium: "",
     method: 0,
     params: "",
   };
@@ -60,6 +61,22 @@ export function serializeBigNum(num: string): Uint8Array {
   bytes.append(new Uint8Array([0]));
   bytes.append(bnBuf);
   return bytes.slice();
+}
+
+// decode bigint from a big-endian byte slice.
+export function decodeBigNum(data: Uint8Array): bigint {
+  const buf = data.buffer;
+  let bits = 8n;
+  if (ArrayBuffer.isView(buf)) {
+    bits = BigInt(data.BYTES_PER_ELEMENT * 8);
+  }
+
+  let ret = 0n;
+  for (const i of data.values()) {
+    const bi = BigInt(i);
+    ret = (ret << bits) + bi;
+  }
+  return ret;
 }
 
 export function toStorageBlock(msg: Message): { cid: CID; data: Uint8Array } {
@@ -112,4 +129,29 @@ export function serializeSignedMessage(smsg: SignedMessage): Uint8Array {
     ],
     sigUl.slice(),
   ]);
+}
+
+const BlockGasLimit = 10_000_000_000;
+const BlockGasTarget = BlockGasLimit / 2;
+const MinGasPremium = 100e3;
+
+export function estimateMessageGas(msg: Message, head: BlockHeader): Message {
+  if (!msg.gasLimit) {
+    // Gas Limit is usually estimated by running the transaction through the state manager's VM
+    // need to think of a strategy for saving gas here we default to the block gas target which is
+    // way higher but should work for most transactions.
+    msg.gasLimit = BlockGasTarget / 10;
+  }
+  if (!msg.gasPremium) {
+    msg.gasPremium = 1.5 * MinGasPremium + "";
+  }
+  if (!msg.gasFeeCap) {
+    const baseFee = decodeBigNum(head.parentBaseFee);
+    const increaseFactor = Math.pow(1 + 1 / 8, 20);
+
+    const feeInFuture = baseFee * BigInt(Math.round(increaseFactor * (1 << 8)));
+    const feeCap = feeInFuture / BigInt(1 << 8) + BigInt(msg.gasPremium);
+    msg.gasFeeCap = feeCap + "";
+  }
+  return msg;
 }

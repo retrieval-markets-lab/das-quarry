@@ -3,9 +3,11 @@ import {
   toStorageBlock,
   signMessage,
   serializeSignedMessage,
+  // serializeBigNum,
+  decodeBigNum,
 } from "../src/messages.js";
 import { toPublic } from "../src/signer.js";
-import { toHex } from "multiformats/bytes";
+import { toHex, fromHex } from "multiformats/bytes";
 
 describe("messages", () => {
   it("encodes a message", () => {
@@ -55,5 +57,10 @@ describe("messages", () => {
     expect(toHex(serializeSignedMessage(smsg))).to.equal(
       "828a005501ea0f0ea039b291a0f08fd179e0556a8c3277c0d3550146442b207c3ee557f64bd5dd6f24f417f50665b5182242000c187b4200ea4200ea0640584201efdbb8ac12e6a4fb427378df7ffc1e6d48fa4f4e2d2956f5e85e2c8bcd5b58e4384f7eaf7cfd5aab62b1f88db7c4f84b1451452d563c50b89ec936447a56b13c01"
     );
+  });
+
+  it("encodes and decodes big nums", () => {
+    const bytes = fromHex("007b");
+    expect(decodeBigNum(bytes)).to.equal(123n);
   });
 });
