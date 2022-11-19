@@ -1,3 +1,4 @@
 package-lock.json
+circuits/target
 node_modules
 dist
