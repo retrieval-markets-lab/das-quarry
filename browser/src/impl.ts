@@ -1,5 +1,4 @@
-import { multiaddr, Multiaddr } from "@multiformats/multiaddr";
-import { peerIdFromString } from "@libp2p/peer-id";
+import { multiaddr } from "@multiformats/multiaddr";
 import { Uint8ArrayList } from "uint8arraylist";
 import { decode, encode } from "@ipld/dag-cbor";
 import { GossipSub } from "@chainsafe/libp2p-gossipsub";
@@ -22,22 +21,6 @@ import {
 import { BlockMsg, decodeBlockMsg, BlockHeader } from "./chainExchange.js";
 import { toPublic, Key } from "./signer.js";
 import { AMT } from "./amt.js";
-
-export function getPeerInfo(addrStr: string): {
-  id: PeerId;
-  multiaddrs: Multiaddr[];
-} {
-  const ma = multiaddr(addrStr);
-  const parts = addrStr.split("/");
-  const idx = parts.indexOf("p2p") + 1;
-  if (idx === 0) {
-    throw new Error("Multiaddr does not contain p2p peer ID");
-  }
-  return {
-    id: peerIdFromString(parts[idx]),
-    multiaddrs: [ma],
-  };
-}
 
 type HelloMsg = [CID[], number, number, CID];
 
@@ -308,9 +291,11 @@ export async function createQuarry(
     },
     waitMessage: function (cid: CID): Promise<MessageReceipt> {
       return new Promise((resolve, reject) => {
+        let blockNum = 0;
         const listener = async (evt: PubSubEvents["message"]) => {
           if (evt.detail.topic === blkTopic) {
             const blk = decodeBlockMsg(evt.detail.data);
+            blockNum++;
             // if the message is contained in the block, it was executed.
             const idx = blk.secpkMessages.findIndex((msg) => msg.equals(cid));
             if (idx > -1) {
@@ -328,6 +313,11 @@ export async function createQuarry(
                 [idx]
               );
               resolve(receipt[0]);
+            }
+            if (blockNum > 6) {
+              pubsub.removeEventListener("message", listener);
+              // Give up
+              reject("message was not included on chain");
             }
           }
         };
