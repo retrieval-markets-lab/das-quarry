@@ -16,7 +16,7 @@ import {
 import Spinner from "./Spinner.js";
 import { enable } from "@libp2p/logger";
 
-enable("libp2p:gossipsub,libp2p:quarry");
+enable("libp2p:gossipsub,quarry");
 
 const ADDR_KEY = "/maddr/default";
 const NETNAME_KEY = "/netname/default";
@@ -46,8 +46,6 @@ function App() {
     });
     await host.start();
 
-    console.log(host.peerId.toString());
-
     const q = await createQuarry(host, {
       networkName: netname,
       bootstrappers: [maddr],
@@ -55,7 +53,6 @@ function App() {
     });
 
     q.subscribeToBlocks((blk) => {
-      console.log(blk);
       setInfo({ latestTipset: [blk.cid], height: blk.header.height });
       setLoading(false);
     });

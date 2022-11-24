@@ -145,7 +145,7 @@ export async function createQuarry(
   pubsub.addEventListener("subscription-change", (evt) => {
     // TODO we could filter out peers in the bootstrappers list who
     // aren't subuscribed to the msgs for whatever reason.
-    log("gossip subscription change %o", evt);
+    log("Gossip subscription change: %o", evt);
   });
 
   // kind of unnecessary so far
@@ -272,7 +272,11 @@ export async function createQuarry(
               );
               resolve(receipt[0]);
             } else {
-              log("message not in new block %c", blk.cid);
+              log(
+                "message not in new block %c at height %d",
+                blk.cid,
+                blk.header.height
+              );
             }
             if (blockNum > 6) {
               pubsub.removeEventListener("message", listener);
