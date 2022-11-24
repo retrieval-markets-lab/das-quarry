@@ -4,18 +4,24 @@ import { Uint8ArrayList } from "uint8arraylist";
 import { decode, encode } from "@ipld/dag-cbor";
 import { GossipSub } from "@chainsafe/libp2p-gossipsub";
 import { defaultTopicScoreParams } from "@chainsafe/libp2p-gossipsub/score";
+import { Cachestore } from "cache-blockstore";
+import { GraphSync } from "@dcdn/graphsync";
+import { blake2b256 } from "@multiformats/blake2/blake2b";
 import type { PeerId } from "@libp2p/interface-peer-id";
 import type { Network } from "./network.js";
 import type { CID } from "multiformats";
 import type { PubSubEvents } from "@libp2p/interface-pubsub";
 import {
   Message,
+  MessageReceipt,
+  buildCid,
   serializeSignedMessage,
   signMessage,
   estimateMessageGas,
 } from "./messages.js";
 import { BlockMsg, decodeBlockMsg, BlockHeader } from "./chainExchange.js";
 import { toPublic, Key } from "./signer.js";
+import { AMT } from "./amt.js";
 
 export function getPeerInfo(addrStr: string): {
   id: PeerId;
@@ -34,6 +40,8 @@ export function getPeerInfo(addrStr: string): {
 }
 
 type HelloMsg = [CID[], number, number, CID];
+
+type NonceTracker = { [key: string]: number };
 
 export type ChainInfo = {
   latestTipset: CID[];
@@ -60,8 +68,67 @@ export async function createQuarry(
   network: Network,
   options: ClientOptions
 ): Promise<QuarryClient> {
+  const blocks = new Cachestore("/quarry/blocks");
+  await blocks.open();
+
+  const exchange = new GraphSync(network, blocks);
+  exchange.start();
+
+  exchange.hashers[blake2b256.code] = blake2b256;
+
+  // TODO: select multiple indeces without fetching the whole HAMT
+  async function fetchReceipts(
+    root: CID,
+    peer: PeerId,
+    idx: number[]
+  ): Promise<MessageReceipt[]> {
+    // Select every node up to depth 10
+    const selector = {
+      R: {
+        l: {
+          depth: 10,
+        },
+        ":>": {
+          a: {
+            ">": {
+              "@": {},
+            },
+          },
+        },
+      },
+    };
+    const req = exchange.request(root, selector);
+    req.open(peer, { chainsync: {} });
+    // loas the blocks in the store
+    await req.drain();
+
+    const amt = await AMT.loadAdt0<[number, Uint8Array, number]>(root, blocks);
+
+    const receipts: MessageReceipt[] = [];
+    for (const i of idx) {
+      const v = await amt.get(BigInt(i));
+      if (v) {
+        receipts.push({
+          exitCode: v[0],
+          return: v[1],
+          gasUsed: v[2],
+        });
+      }
+    }
+    return receipts;
+  }
+
   // The latest block header.
   let head: BlockHeader | null = null;
+
+  const nonceTracker: NonceTracker = {};
+
+  function getNextNonce(addr: string): number {
+    if (!nonceTracker[addr]) {
+      nonceTracker[addr] = 0;
+    }
+    return nonceTracker[addr]++;
+  }
 
   // insecure keystore in memory for development. Do not store real private keys in there!
   const keystore: Map<string, Key> = new Map();
@@ -130,6 +197,8 @@ export async function createQuarry(
       opportunisticGraftThreshold: 3.5,
     },
     gossipsubIWantFollowupMs: 5 * 1000,
+    mcacheLength: 10,
+    mcacheGossip: 10,
   });
   await pubsub.start();
 
@@ -175,7 +244,7 @@ export async function createQuarry(
   if (options.bootstrappers) {
     await Promise.all(
       options.bootstrappers.map((addr) => network.dial(multiaddr(addr)))
-    );
+    ).catch((err) => console.error("failed to dial bootstrap peers", err));
   }
 
   // Long running block subscription, returns an easy way to
@@ -193,12 +262,7 @@ export async function createQuarry(
     };
   }
 
-  // return the latest block header if we've already seen it or
-  // wait for it to show up on pubsub
-  async function getHead(): Promise<BlockHeader> {
-    if (head) {
-      return head;
-    }
+  function waitNextHead(): Promise<BlockHeader> {
     return new Promise((resolve) => {
       const listener = (evt: PubSubEvents["message"]) => {
         if (evt.detail.topic === blkTopic) {
@@ -208,6 +272,15 @@ export async function createQuarry(
       };
       pubsub.addEventListener("message", listener);
     });
+  }
+
+  // return the latest block header if we've already seen it or
+  // wait for it to show up on pubsub
+  async function getHead(): Promise<BlockHeader> {
+    if (head) {
+      return head;
+    }
+    return waitNextHead();
   }
 
   return {
@@ -221,23 +294,42 @@ export async function createQuarry(
     pushMessage: async function (msg: Message): Promise<CID> {
       const { value: key } = keystore.values().next();
       msg.from = key.addr;
+      if (msg.nonce === 0) {
+        msg.nonce = getNextNonce(key.addr);
+      }
       estimateMessageGas(msg, await getHead());
       const smsg = signMessage(msg, key.priv);
       const enc = serializeSignedMessage(smsg);
+      // re hash the whole thing
+      const cid = buildCid(enc);
 
       await pubsub.publish(msgTopic, enc);
-      return smsg.cid;
+      return cid;
     },
-    waitMessage: function (cid: CID) {
+    waitMessage: function (cid: CID): Promise<MessageReceipt> {
       return new Promise((resolve, reject) => {
-        const listener = (evt: PubSubEvents["message"]) => {
+        const listener = async (evt: PubSubEvents["message"]) => {
           if (evt.detail.topic === blkTopic) {
             const blk = decodeBlockMsg(evt.detail.data);
             // if the message is contained in the block, it was executed.
-            // TODO: fetch execution receipt.
-            if (blk.secpkMessages.some((msg) => msg.equals(cid))) {
+            const idx = blk.secpkMessages.findIndex((msg) => msg.equals(cid));
+            if (idx > -1) {
+              console.log("block contains our message");
               pubsub.removeEventListener("message", listener);
-              resolve(null);
+              // wait for next head to get receipts
+              const nextHead = await waitNextHead();
+              console.log("received next head");
+              const peer = (await network.peerStore.all()).pop();
+              if (!peer) {
+                throw new Error("no connected peers");
+              }
+
+              const receipt = await fetchReceipts(
+                nextHead.parentMessageReceipts,
+                peer.id,
+                [idx]
+              );
+              resolve(receipt[0]);
             }
           }
         };

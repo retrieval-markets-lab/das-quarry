@@ -1,5 +1,5 @@
 import * as React from "react";
-import * as ReactDOM from "react-dom";
+import * as ReactDOM from "react-dom/client";
 import { useState, useEffect } from "react";
 import { createLibp2p, Libp2p } from "libp2p";
 import * as filters from "@libp2p/websockets/filters";
@@ -52,10 +52,9 @@ function App() {
     });
 
     q.subscribeToBlocks((blk) => {
+      console.log(blk);
       setInfo({ latestTipset: [blk.cid], height: blk.header.height });
-      if (loading) {
-        setLoading(false);
-      }
+      setLoading(false);
     });
 
     setQuarry(q);
@@ -72,10 +71,17 @@ function App() {
 
   const [to, setTo] = useState(localStorage.getItem(TO_KEY) ?? "");
   const [amount, setAmount] = useState(localStorage.getItem(AMOUNT_KEY) ?? "");
+  const [nonce, setNonce] = useState(0);
+  const [receipt, setReceipt] = useState<Object | null>(null);
   async function sendMessage() {
     localStorage.setItem(TO_KEY, to);
     localStorage.setItem(AMOUNT_KEY, amount);
-    const msgCid = await quarry?.pushMessage(messages.send({ amount, to }));
+    const msgCid = await quarry?.pushMessage(
+      messages.send({ amount, to, nonce })
+    );
+    const r = await quarry?.waitMessage(msgCid);
+    console.log(r);
+    setReceipt(r);
   }
 
   return (
@@ -129,6 +135,8 @@ function App() {
         import
       </button>
 
+      {key && <pre>{key.addr}</pre>}
+
       <h3>Messages</h3>
       <input
         id="to"
@@ -140,21 +148,33 @@ function App() {
         value={to}
         onChange={(e) => setTo(e.target.value)}
       />
-      <input
-        id="amount"
-        type="text"
-        autoComplete="off"
-        spellCheck="false"
-        placeholder="Filecoin amount"
-        className="ipt"
-        value={amount}
-        onChange={(e) => setAmount(e.target.value)}
-      />
+      <div className="row">
+        <input
+          id="amount"
+          type="text"
+          autoComplete="off"
+          spellCheck="false"
+          placeholder="Filecoin amount"
+          className="ipt"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
+        <div className="spc" />
+        <input
+          id="nonce"
+          type="number"
+          placeholder="Message nonce"
+          className="ipt"
+          value={nonce}
+          onChange={(e) => setNonce(Number(e.target.value))}
+        />
+      </div>
+
       <button className="btn" onClick={sendMessage} disabled={!to}>
         Publish
       </button>
 
-      {key && <p>{key.addr}</p>}
+      {receipt && <pre>{JSON.stringify(receipt, null, "  ")}</pre>}
 
       <h3>Tipset</h3>
 
@@ -162,19 +182,24 @@ function App() {
         <Spinner />
       ) : (
         <pre>
-          {info?.latestTipset.reduce(
-            (cid, acc) => cid.toString() + " " + acc,
-            ""
-          ) ?? "Not connected to network"}
+          {info
+            ? info.height +
+              " | " +
+              info.latestTipset.reduce(
+                (cid, acc) => cid.toString() + " " + acc,
+                ""
+              )
+            : "Not connected to network"}
         </pre>
       )}
     </div>
   );
 }
 
-ReactDOM.render(
+const root = ReactDOM.createRoot(document.getElementById("root"));
+
+root.render(
   <React.StrictMode>
     <App />
-  </React.StrictMode>,
-  document.getElementById("root")
+  </React.StrictMode>
 );

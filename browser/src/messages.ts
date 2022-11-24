@@ -21,12 +21,20 @@ export type Message = {
   params: string;
 };
 
-export function send({ amount, to }: { amount: string; to: string }): Message {
+export function send({
+  amount,
+  to,
+  nonce,
+}: {
+  amount: string;
+  to: string;
+  nonce?: number;
+}): Message {
   return {
     version: 0,
     to,
     from: "",
-    nonce: 1,
+    nonce: nonce ?? 0,
     value: amount,
     gasLimit: 0,
     gasFeeCap: "",
@@ -79,13 +87,16 @@ export function decodeBigNum(data: Uint8Array): bigint {
   return ret;
 }
 
-export function toStorageBlock(msg: Message): { cid: CID; data: Uint8Array } {
-  const data = encodeMessage(msg);
+export function buildCid(data: Uint8Array): CID {
   const hash = blake2b256.digest(data);
   // @ts-ignore
-  const cid = CID.create(1, 0x71, hash);
+  return CID.create(1, 0x71, hash);
+}
+
+export function toStorageBlock(msg: Message): { cid: CID; data: Uint8Array } {
+  const data = encodeMessage(msg);
   return {
-    cid,
+    cid: buildCid(data),
     data,
   };
 }
@@ -155,3 +166,9 @@ export function estimateMessageGas(msg: Message, head: BlockHeader): Message {
   }
   return msg;
 }
+
+export type MessageReceipt = {
+  exitCode: number;
+  return: Uint8Array;
+  gasUsed: number;
+};
