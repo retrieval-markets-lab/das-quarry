@@ -1,11 +1,11 @@
 import { multiaddr } from "@multiformats/multiaddr";
 import { Uint8ArrayList } from "uint8arraylist";
 import { decode, encode } from "@ipld/dag-cbor";
-import { GossipSub } from "@chainsafe/libp2p-gossipsub";
-import { defaultTopicScoreParams } from "@chainsafe/libp2p-gossipsub/score";
+import { GossipSub, GossipsubOpts } from "@chainsafe/libp2p-gossipsub";
 import { Cachestore } from "cache-blockstore";
 import { GraphSync } from "@dcdn/graphsync";
 import { blake2b256 } from "@multiformats/blake2/blake2b";
+import { logger } from "@libp2p/logger";
 import type { PeerId } from "@libp2p/interface-peer-id";
 import type { Network } from "./network.js";
 import type { CID } from "multiformats";
@@ -45,12 +45,15 @@ type ClientOptions = {
   networkName: string;
   handleHello?: boolean;
   bootstrappers?: string[];
+  gossipsub?: GossipsubOpts;
 };
 
 export async function createQuarry(
   network: Network,
   options: ClientOptions
 ): Promise<QuarryClient> {
+  const log = logger("quarry");
+
   const blocks = new Cachestore("/quarry/blocks");
   await blocks.open();
 
@@ -81,9 +84,13 @@ export async function createQuarry(
       },
     };
     const req = exchange.request(root, selector);
-    req.open(peer, { chainsync: {} });
+    req
+      .open(peer, { chainsync: {} })
+      .then(() => log("started graphsync query %c", root));
     // loas the blocks in the store
     await req.drain();
+
+    log("loaded all receipt amt blocks in the store");
 
     const amt = await AMT.loadAdt0<[number, Uint8Array, number]>(root, blocks);
 
@@ -120,69 +127,7 @@ export async function createQuarry(
 
   // gossip params are setup after Lotus params in order for the node to be treated
   // as similarly as other peers as possible. Need more research into fine tuning these.
-  const pubsub = new GossipSub(network, {
-    floodPublish: true,
-    allowedTopics: [msgTopic, blkTopic],
-    scoreParams: {
-      topics: {
-        [blkTopic]: {
-          ...defaultTopicScoreParams,
-          // expected 10 blocks/min
-          topicWeight: 0.1, // max cap is 50, max mesh penalty is -10, single invalid message is -100
-          // 1 tick per second, maxes at 1 after 1 hour
-          timeInMeshWeight: 0.00027, // ~1/3600
-          timeInMeshQuantum: 1,
-          timeInMeshCap: 1,
-          // deliveries decay after 1 hour, cap at 100 blocks
-          firstMessageDeliveriesWeight: 5, // max value is 500
-          firstMessageDeliveriesDecay: 0.998722,
-          firstMessageDeliveriesCap: 100, // 100 blocks in an hour
-          // invalid messages decay after 1 hour
-          invalidMessageDeliveriesWeight: -1000,
-          invalidMessageDeliveriesDecay: 0.998722,
-        },
-        [msgTopic]: {
-          ...defaultTopicScoreParams,
-          // expected > 1 tx/second
-          topicWeight: 0.1, // max cap is 5, single invalid message is -100
-          // 1 tick per second, maxes at 1 hour
-          timeInMeshWeight: 0.0002778, // ~1/3600
-          timeInMeshQuantum: 1,
-          timeInMeshCap: 1,
-          // deliveries decay after 10min, cap at 100 tx
-          firstMessageDeliveriesWeight: 0.5, // max value is 50
-          firstMessageDeliveriesDecay: 0.992354,
-          firstMessageDeliveriesCap: 100, // 100 messages in 10 minutes
-          // invalid messages decay after 1 hour
-          invalidMessageDeliveriesWeight: -1000,
-          invalidMessageDeliveriesDecay: 0.998722,
-        },
-      },
-      topicScoreCap: 10.0,
-      // Can prevent pruning bootstrap nodes when we know them.
-      appSpecificScore: () => 0.0,
-      appSpecificWeight: 1,
-      IPColocationFactorWeight: -100,
-      IPColocationFactorThreshold: 5,
-      IPColocationFactorWhitelist: new Set(),
-      behaviourPenaltyWeight: -10.0,
-      behaviourPenaltyThreshold: 6,
-      behaviourPenaltyDecay: 0.998722,
-      decayInterval: 1000.0,
-      decayToZero: 0.1,
-      retainScore: 3600 * 6,
-    },
-    scoreThresholds: {
-      gossipThreshold: -500,
-      publishThreshold: -1000,
-      graylistThreshold: -2500,
-      acceptPXThreshold: 1000,
-      opportunisticGraftThreshold: 3.5,
-    },
-    gossipsubIWantFollowupMs: 5 * 1000,
-    mcacheLength: 10,
-    mcacheGossip: 10,
-  });
+  const pubsub = new GossipSub(network, options.gossipsub);
   await pubsub.start();
 
   pubsub.subscribe(blkTopic);
@@ -200,7 +145,7 @@ export async function createQuarry(
   pubsub.addEventListener("subscription-change", (evt) => {
     // TODO we could filter out peers in the bootstrappers list who
     // aren't subuscribed to the msgs for whatever reason.
-    console.log(evt);
+    log("gossip subscription change %o", evt);
   });
 
   // kind of unnecessary so far
@@ -210,7 +155,13 @@ export async function createQuarry(
       for await (const chunk of stream.source) {
         chunks.append(chunk);
       }
-      const [_tipSet, _height, ,] = decode<HelloMsg>(chunks.slice());
+      const [tipSet, _height, ,] = decode<HelloMsg>(chunks.slice());
+
+      log(
+        "Got new tipset through Hello: %o from %p",
+        tipSet.map((c) => c.toString()),
+        connection.remotePeer
+      );
 
       const tArrival = performance.now() * 1000;
 
@@ -286,11 +237,14 @@ export async function createQuarry(
       // re hash the whole thing
       const cid = buildCid(enc);
 
+      log("publishing message %c", cid);
+
       await pubsub.publish(msgTopic, enc);
       return cid;
     },
     waitMessage: function (cid: CID): Promise<MessageReceipt> {
       return new Promise((resolve, reject) => {
+        log("waiting for message");
         let blockNum = 0;
         const listener = async (evt: PubSubEvents["message"]) => {
           if (evt.detail.topic === blkTopic) {
@@ -299,6 +253,10 @@ export async function createQuarry(
             // if the message is contained in the block, it was executed.
             const idx = blk.secpkMessages.findIndex((msg) => msg.equals(cid));
             if (idx > -1) {
+              log(
+                "message was included in block %c, waiting for next block to fetch receipts",
+                blk.cid
+              );
               pubsub.removeEventListener("message", listener);
               // wait for next head to get receipts
               const nextHead = await waitNextHead();
@@ -313,6 +271,8 @@ export async function createQuarry(
                 [idx]
               );
               resolve(receipt[0]);
+            } else {
+              log("message not in new block %c", blk.cid);
             }
             if (blockNum > 6) {
               pubsub.removeEventListener("message", listener);

@@ -14,6 +14,9 @@ import {
   messages,
 } from "das-quarry";
 import Spinner from "./Spinner.js";
+import { enable } from "@libp2p/logger";
+
+enable("libp2p:gossipsub,libp2p:quarry");
 
 const ADDR_KEY = "/maddr/default";
 const NETNAME_KEY = "/netname/default";
