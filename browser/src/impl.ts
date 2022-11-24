@@ -314,11 +314,9 @@ export async function createQuarry(
             // if the message is contained in the block, it was executed.
             const idx = blk.secpkMessages.findIndex((msg) => msg.equals(cid));
             if (idx > -1) {
-              console.log("block contains our message");
               pubsub.removeEventListener("message", listener);
               // wait for next head to get receipts
               const nextHead = await waitNextHead();
-              console.log("received next head");
               const peer = (await network.peerStore.all()).pop();
               if (!peer) {
                 throw new Error("no connected peers");
